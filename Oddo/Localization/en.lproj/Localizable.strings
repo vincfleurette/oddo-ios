@@ -1,0 +1,8 @@
+/* English localization */
+"LoginTitle" = "Login";
+"UsernamePlaceholder" = "Username";
+"PasswordPlaceholder" = "Password";
+"LoginButton" = "Sign In";
+"LoginError" = "Login failed";
+"TotalBalance" = "Total Balance";
+"HistoryTitle" = "History";

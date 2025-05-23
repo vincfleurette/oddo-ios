@@ -1,0 +1,8 @@
+/* French localization */
+"LoginTitle" = "Connexion";
+"UsernamePlaceholder" = "Utilisateur";
+"PasswordPlaceholder" = "Mot de passe";
+"LoginButton" = "Se connecter";
+"LoginError" = "Échec de la connexion";
+"TotalBalance" = "Solde total";
+"HistoryTitle" = "Historique";
