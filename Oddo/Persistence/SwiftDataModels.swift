@@ -6,13 +6,19 @@ class Account {
     @Attribute(.unique) var accountNumber: String
     var label: String
     var value: Double
-    @Relationship var positions: [Position]
+    @Relationship(deleteRule: .cascade, inverse: \Position.account)
+    var positions: [Position]
 
     init(accountNumber: String, label: String, value: Double, positions: [Position] = []) {
         self.accountNumber = accountNumber
         self.label = label
         self.value = value
         self.positions = positions
+        
+        // S'assurer que les positions pointent vers ce compte
+        for position in positions {
+            position.account = self
+        }
     }
 }
 
@@ -29,8 +35,12 @@ class Position {
     var pmvr: Double
     var weightMinute: Double
     var reportingAssetClassCode: String
+    
+    // Relation inverse vers Account
+    @Relationship var account: Account?
 
-    init(dto: PositionDTO) {
+    init(dto: PositionDTO, account: Account? = nil) {
+        self.id = UUID()
         self.isinCode = dto.isinCode
         self.libInstrument = dto.libInstrument
         self.valorisationAchatNette = dto.valorisationAchatNette
@@ -41,6 +51,7 @@ class Position {
         self.pmvr = dto.pmvr
         self.weightMinute = dto.weightMinute
         self.reportingAssetClassCode = dto.reportingAssetClassCode
+        self.account = account
     }
 }
 
@@ -57,19 +68,31 @@ class Snapshot {
         self.accountNumber = account.accountNumber
         self.value = account.value
         let encoder = JSONEncoder()
-        self.positionsData = try! encoder.encode(account.positions.map { pos in
-            PositionDTO(
-                isinCode: pos.isinCode,
-                libInstrument: pos.libInstrument,
-                valorisationAchatNette: pos.valorisationAchatNette,
-                valeurMarcheDeviseSecurite: pos.valeurMarcheDeviseSecurite,
-                dateArrete: pos.dateArrete,
-                quantityMinute: pos.quantityMinute,
-                pmvl: pos.pmvl,
-                pmvr: pos.pmvr,
-                weightMinute: pos.weightMinute,
-                reportingAssetClassCode: pos.reportingAssetClassCode
-            )
-        })
+        
+        // Configuration de l'encoder pour les dates
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        dateFormatter.timeZone = TimeZone(secondsFromGMT: 0)
+        encoder.dateEncodingStrategy = .formatted(dateFormatter)
+        
+        do {
+            self.positionsData = try encoder.encode(account.positions.map { pos in
+                PositionDTO(
+                    isinCode: pos.isinCode,
+                    libInstrument: pos.libInstrument,
+                    valorisationAchatNette: pos.valorisationAchatNette,
+                    valeurMarcheDeviseSecurite: pos.valeurMarcheDeviseSecurite,
+                    dateArrete: pos.dateArrete,
+                    quantityMinute: pos.quantityMinute,
+                    pmvl: pos.pmvl,
+                    pmvr: pos.pmvr,
+                    weightMinute: pos.weightMinute,
+                    reportingAssetClassCode: pos.reportingAssetClassCode
+                )
+            })
+        } catch {
+            print("❌ Error encoding positions for snapshot: \(error)")
+            self.positionsData = Data()
+        }
     }
 }

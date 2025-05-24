@@ -7,6 +7,6 @@ struct OddoAppApp: App {
         WindowGroup {
             LoginView()
         }
-        .modelContainer(for: [Account.self, Snapshot.self])
+        .modelContainer(for: [Account.self, Position.self, Snapshot.self])
     }
 }

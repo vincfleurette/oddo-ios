@@ -10,22 +10,41 @@ struct LoginView: View {
             VStack(spacing: 16) {
                 Text(NSLocalizedString("LoginTitle", comment: ""))
                     .font(.largeTitle)
+                
                 TextField(NSLocalizedString("UsernamePlaceholder", comment: ""), text: $vm.username)
                     .textFieldStyle(.roundedBorder)
-                    .textInputAutocapitalization(.never) // Désactive la capitalisation auto (préféré)
-                    .autocorrectionDisabled(true)         // Désactive la correction auto
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled(true)
+                    .disabled(vm.isLoading)
+                
                 SecureField(NSLocalizedString("PasswordPlaceholder", comment: ""), text: $vm.password)
                     .textFieldStyle(.roundedBorder)
-                    .textInputAutocapitalization(.never) // Désactive la capitalisation auto (préféré)
-                    .autocorrectionDisabled(true)         // Désactive la correction auto
-                if let _ = vm.errorMessage {
-                    Text(NSLocalizedString("LoginError", comment: ""))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled(true)
+                    .disabled(vm.isLoading)
+                
+                if let errorMessage = vm.errorMessage {
+                    Text(errorMessage)
                         .foregroundColor(.red)
+                        .font(.caption)
+                        .multilineTextAlignment(.center)
                 }
-                Button(NSLocalizedString("LoginButton", comment: "")) {
+                
+                Button(action: {
                     Task { await vm.login() }
+                }) {
+                    if vm.isLoading {
+                        HStack {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                            Text("Connecting...")
+                        }
+                    } else {
+                        Text(NSLocalizedString("LoginButton", comment: ""))
+                    }
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(vm.isLoading || vm.username.isEmpty || vm.password.isEmpty)
             }
             .padding()
         }

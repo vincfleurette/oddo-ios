@@ -5,6 +5,16 @@ import Foundation
 final class APIService {
     static let shared = APIService()
     
+    // JSONDecoder configuré pour gérer les dates de votre API
+    private lazy var jsonDecoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        dateFormatter.timeZone = TimeZone(secondsFromGMT: 0) // UTC
+        decoder.dateDecodingStrategy = .formatted(dateFormatter)
+        return decoder
+    }()
+    
     /// Propriété calculée pour la base URL, crash explicite si mauvaise config
     var baseURL: URL {
         guard let urlString = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String,
@@ -14,34 +24,8 @@ final class APIService {
         return url
     }
     
-    var loginURL: URL { baseURL.appendingPathComponent("login") }
     var accountsURL: URL { baseURL.appendingPathComponent("accounts") }
-    // Ajoute d'autres endpoints si besoin, exemple :
-    // var positionsURL: URL { baseURL.appendingPathComponent("accounts/positions") }
 
-    // MARK: - Login
-    func login(user: String, pass: String) async throws -> String {
-        var req = URLRequest(url: loginURL)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body = ["user": user, "pass": pass]
-        req.httpBody = try JSONEncoder().encode(body)
-        
-        let (data, response) = try await URLSession.shared.data(for: req)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw URLError(.badServerResponse)
-        }
-        guard (200...299).contains(httpResponse.statusCode) else {
-            throw URLError(.badServerResponse)
-        }
-        // Adapter le parsing selon la réponse réelle de ton API
-        let resp = try JSONDecoder().decode([String:String].self, from: data)
-        guard let jwt = resp["jwt"] else {
-            throw NSError(domain: "Auth", code: 0, userInfo: [NSLocalizedDescriptionKey: "JWT token missing"])
-        }
-        return jwt
-    }
-    
     func fetchAccounts(jwt: String) async throws -> [AccountDTO] {
         var req = URLRequest(url: accountsURL)
         req.httpMethod = "GET"
@@ -69,49 +53,54 @@ final class APIService {
         
         print("→ Response data size: \(data.count) bytes")
         
-        // Vérifiez le JSON avant de décoder
+        // Log du JSON complet pour debug
         if let jsonString = String(data: data, encoding: .utf8) {
-            print("→ JSON Response: \(jsonString)")
+            print("→ JSON Response COMPLETE: \(jsonString)")
+        }
+        
+        // Si la réponse est vide, on va debug l'autorisation
+        if data.count <= 10 {
+            print("⚠️ Response trop petite, possible problème d'autorisation")
+            print("→ JWT utilisé: \(jwt.prefix(50))...")
         }
         
         do {
-            let accounts = try JSONDecoder().decode([AccountDTO].self, from: data)
+            // Utiliser le decoder configuré avec le DateFormatter
+            let accounts = try jsonDecoder.decode([AccountDTO].self, from: data)
             print("→ Successfully decoded \(accounts.count) accounts")
+            
+            // Log des positions pour vérification
+            for account in accounts {
+                print("   Account \(account.accountNumber): \(account.positions.count) positions")
+            }
+            
             return accounts
         } catch {
             print("❌ JSON Decoding error: \(error)")
+            
+            // Plus de détails sur l'erreur de décodage
+            if let decodingError = error as? DecodingError {
+                switch decodingError {
+                case .typeMismatch(let type, let context):
+                    print("❌ Type mismatch: expected \(type), context: \(context)")
+                case .valueNotFound(let type, let context):
+                    print("❌ Value not found: \(type), context: \(context)")
+                case .keyNotFound(let key, let context):
+                    print("❌ Key not found: \(key), context: \(context)")
+                case .dataCorrupted(let context):
+                    print("❌ Data corrupted: \(context)")
+                @unknown default:
+                    print("❌ Unknown decoding error: \(error)")
+                }
+            }
+            
             throw error
         }
     }
     
-    // MARK: - Get Positions (exemple)
+    // MARK: - Get Positions (Deprecated - positions incluses dans accounts)
     func fetchPositions(for accountNumber: String, jwt: String) async throws -> [PositionDTO] {
-        // Votre URL pour les positions
-        let positionsURL = URL(string: "https://oddo.fleurette.me/positions/\(accountNumber)")!
-        
-        var req = URLRequest(url: positionsURL)
-        req.httpMethod = "GET"
-        req.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
-        
-        print("→ Requesting positions from: \(positionsURL)")
-        
-        let (data, response) = try await URLSession.shared.data(for: req)
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
-            print("❌ Response is not HTTPURLResponse")
-            throw URLError(.badServerResponse)
-        }
-        
-        print("→ Positions HTTP Status: \(httpResponse.statusCode)")
-        print("→ Positions Response headers: \(httpResponse.allHeaderFields)")
-        
-        guard (200...299).contains(httpResponse.statusCode) else {
-            print("❌ Bad status code: \(httpResponse.statusCode)")
-            if let responseString = String(data: data, encoding: .utf8) {
-                print("❌ Response body: \(responseString)")
-            }
-            throw URLError(.badServerResponse)
-        }
-        return try JSONDecoder().decode([PositionDTO].self, from: data)
+        // Les positions sont maintenant incluses dans la réponse accounts
+        return []
     }
 }
