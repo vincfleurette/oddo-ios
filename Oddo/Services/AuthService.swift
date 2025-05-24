@@ -5,8 +5,11 @@ class AuthService {
     static let shared = AuthService()
     private let keychainKey = "OddoJWT"
     var baseURL: URL {
-        let urlString = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String ?? "https://fallback.url"
-        return URL(string: urlString)!
+        let urlString = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String ?? ""
+        guard let url = URL(string: urlString), !urlString.isEmpty else {
+            fatalError("API_BASE_URL mal configuré ou non présente dans Info.plist")
+        }
+        return url
     }
     
     private var loginUrl: URL {

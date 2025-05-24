@@ -19,7 +19,7 @@ struct AccountsListView: View {
                     AccountDetailView(account: acc)
                 }
             }
-            .task { await vm.load() }
+            .task { await vm.loadFromAuthService() }
         }
     }
 }

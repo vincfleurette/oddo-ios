@@ -42,33 +42,74 @@ final class APIService {
         return jwt
     }
     
-    // MARK: - Get Accounts (exemple)
     func fetchAccounts(jwt: String) async throws -> [AccountDTO] {
         var req = URLRequest(url: accountsURL)
         req.httpMethod = "GET"
         req.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
         
+        print("→ Requesting accounts from: \(accountsURL)")
+        
         let (data, response) = try await URLSession.shared.data(for: req)
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ Response is not HTTPURLResponse")
             throw URLError(.badServerResponse)
         }
-        return try JSONDecoder().decode([AccountDTO].self, from: data)
+        
+        print("→ HTTP Status: \(httpResponse.statusCode)")
+        print("→ Response headers: \(httpResponse.allHeaderFields)")
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            print("❌ Bad status code: \(httpResponse.statusCode)")
+            if let responseString = String(data: data, encoding: .utf8) {
+                print("❌ Response body: \(responseString)")
+            }
+            throw URLError(.badServerResponse)
+        }
+        
+        print("→ Response data size: \(data.count) bytes")
+        
+        // Vérifiez le JSON avant de décoder
+        if let jsonString = String(data: data, encoding: .utf8) {
+            print("→ JSON Response: \(jsonString)")
+        }
+        
+        do {
+            let accounts = try JSONDecoder().decode([AccountDTO].self, from: data)
+            print("→ Successfully decoded \(accounts.count) accounts")
+            return accounts
+        } catch {
+            print("❌ JSON Decoding error: \(error)")
+            throw error
+        }
     }
     
     // MARK: - Get Positions (exemple)
-    func fetchPositions(accountNumber: String) async throws -> [PositionDTO] {
-        guard let jwt = AuthService.shared.retrieveJWT() else {
-            throw NSError(domain: "Auth", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing JWT"])
-        }
-        var req = URLRequest(url: baseURL.appendingPathComponent("accounts/positions"))
-        req.httpMethod = "POST"
+    func fetchPositions(for accountNumber: String, jwt: String) async throws -> [PositionDTO] {
+        // Votre URL pour les positions
+        let positionsURL = URL(string: "https://oddo.fleurette.me/positions/\(accountNumber)")!
+        
+        var req = URLRequest(url: positionsURL)
+        req.httpMethod = "GET"
         req.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONEncoder().encode(["accountNumber": accountNumber])
+        
+        print("→ Requesting positions from: \(positionsURL)")
+        
         let (data, response) = try await URLSession.shared.data(for: req)
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ Response is not HTTPURLResponse")
+            throw URLError(.badServerResponse)
+        }
+        
+        print("→ Positions HTTP Status: \(httpResponse.statusCode)")
+        print("→ Positions Response headers: \(httpResponse.allHeaderFields)")
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            print("❌ Bad status code: \(httpResponse.statusCode)")
+            if let responseString = String(data: data, encoding: .utf8) {
+                print("❌ Response body: \(responseString)")
+            }
             throw URLError(.badServerResponse)
         }
         return try JSONDecoder().decode([PositionDTO].self, from: data)

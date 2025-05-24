@@ -30,7 +30,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		F2F6938B2DDF813D00CBBBBE /* Exceptions for "Oddo" folder in "Oddo" target */ = {
+		F2F693922DE06BBC00CBBBBE /* Exceptions for "Oddo" folder in "Oddo" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -43,7 +43,7 @@
 		F20F7F522DD374D60028F750 /* Oddo */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				F2F6938B2DDF813D00CBBBBE /* Exceptions for "Oddo" folder in "Oddo" target */,
+				F2F693922DE06BBC00CBBBBE /* Exceptions for "Oddo" folder in "Oddo" target */,
 			);
 			path = Oddo;
 			sourceTree = "<group>";
