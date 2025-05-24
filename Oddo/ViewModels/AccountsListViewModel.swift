@@ -4,7 +4,6 @@ import SwiftData
 extension String {
     func base64Decoded() -> Data? {
         var base64 = self
-        // Ajouter le padding si nécessaire
         let remainder = base64.count % 4
         if remainder > 0 {
             base64 = base64.padding(toLength: base64.count + 4 - remainder, withPad: "=", startingAt: 0)
@@ -19,119 +18,228 @@ class AccountsListViewModel: ObservableObject {
     @Published var totalValue: Double = 0
     @Published var isLoading = false
     @Published var errorMessage: String?
+    
+    private var lastRefreshDate: Date?
+    private let cacheValidityDuration: TimeInterval = 6 * 3600 // 6 heures (données mises à jour toutes les 12h)
+    
+    // Calcul des heures de mise à jour (supposons 9h et 21h par exemple)
+    private let dataUpdateHours: [Int] = [9, 21] // 9h00 et 21h00
 
-    /// Charge les comptes avec le JWT fourni.
+    /// Charge les comptes en utilisant le cache intelligent pour données financières
+    func loadAccountsSmartly(context: ModelContext, forceRefresh: Bool = false) async {
+        // 1. Si force refresh, aller directement à l'API
+        if forceRefresh {
+            print("🔄 Force refresh requested")
+            await loadFromAPI(context: context)
+            return
+        }
+        
+        // 2. Vérifier si on a des données récentes en cache
+        if await loadFromLocalCache(context: context) {
+            print("✅ Using cached data (financial data updates every 12h)")
+            return
+        }
+        
+        // 3. Sinon, charger depuis l'API
+        print("📡 Cache expired or empty, loading from API")
+        await loadFromAPI(context: context)
+    }
+    
+    /// Charge depuis le cache local avec logique adaptée aux données financières
+    private func loadFromLocalCache(context: ModelContext) async -> Bool {
+        do {
+            let descriptor = FetchDescriptor<Account>(sortBy: [SortDescriptor(\.accountNumber)])
+            let cachedAccounts = try context.fetch(descriptor)
+            
+            guard !cachedAccounts.isEmpty else {
+                print("🔍 No cached accounts found")
+                return false
+            }
+            
+            // Vérifier la fraîcheur via les snapshots
+            let snapshotDescriptor = FetchDescriptor<Snapshot>(
+                sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+            )
+            let recentSnapshots = try context.fetch(snapshotDescriptor)
+            
+            if let lastSnapshot = recentSnapshots.first {
+                let timeSinceLastUpdate = Date().timeIntervalSince(lastSnapshot.timestamp)
+                let hoursAgo = timeSinceLastUpdate / 3600
+                
+                // Si les données ont moins de 6 heures, les utiliser
+                if timeSinceLastUpdate < cacheValidityDuration {
+                    self.accounts = cachedAccounts
+                    self.totalValue = cachedAccounts.reduce(0) { $0 + $1.value }
+                    self.lastRefreshDate = lastSnapshot.timestamp
+                    
+                    print("✅ Using cache from \(String(format: "%.1f", hoursAgo))h ago")
+                    return true
+                } else {
+                    print("🕐 Cache expired (\(String(format: "%.1f", hoursAgo))h ago, validity: 6h)")
+                    return false
+                }
+            }
+            
+            // Pas de snapshot récent
+            print("❌ No recent snapshot found")
+            return false
+            
+        } catch {
+            print("❌ Failed to load from cache: \(error)")
+            return false
+        }
+    }
+    
+    /// Charge depuis l'API et met à jour le cache
+    private func loadFromAPI(context: ModelContext) async {
+        guard let jwt = AuthService.shared.retrieveJWT() else {
+            print("❌ JWT missing, authentication required")
+            self.errorMessage = "Authentication required"
+            return
+        }
+        
+        // Vérifier l'expiration du JWT
+        if isJWTExpired(jwt) {
+            self.errorMessage = "Token expired, please re-login"
+            return
+        }
+        
+        await load(jwt: jwt, context: context)
+    }
+    
+    /// Vérification d'expiration du JWT
+    private func isJWTExpired(_ jwt: String) -> Bool {
+        let jwtParts = jwt.split(separator: ".")
+        guard jwtParts.count == 3 else { return true }
+        
+        let payload = String(jwtParts[1])
+        guard let payloadData = payload.base64Decoded(),
+              let jwtJson = try? JSONSerialization.jsonObject(with: payloadData, options: []) as? [String: Any],
+              let exp = jwtJson["exp"] as? TimeInterval else {
+            return true
+        }
+        
+        let expirationDate = Date(timeIntervalSince1970: exp)
+        let isExpired = expirationDate < Date()
+        
+        if isExpired {
+            print("⚠️ JWT expired")
+        }
+        
+        return isExpired
+    }
+
+    /// Charge les comptes avec le JWT fourni
     func load(jwt: String, context: ModelContext) async {
-        print("🔄 Starting load with JWT: \(jwt.prefix(20))...")
+        print("🔄 Loading accounts from API...")
         isLoading = true
         errorMessage = nil
         
         do {
-            print("→ Tentative de chargement des comptes")
             let dtos = try await APIService.shared.fetchAccounts(jwt: jwt)
-            print("→ Comptes reçus: \(dtos.count)")
+            print("→ Received \(dtos.count) accounts from API")
             
-            // Debug: afficher les DTOs reçus
-            for (index, dto) in dtos.enumerated() {
-                print("   DTO[\(index)]: \(dto.accountNumber) - \(dto.label) - Value: \(dto.value) - Positions: \(dto.positions.count)")
-            }
+            // Supprimer les anciens comptes pour éviter les doublons
+            await clearOldAccounts(context: context)
             
             var models: [Account] = []
             for dto in dtos {
-                print("→ Traitement du compte: \(dto.accountNumber)")
-                print("   ↳ Label: '\(dto.label)'")
-                print("   ↳ Value: \(dto.value)")
-                print("   ↳ Positions incluses: \(dto.positions.count)")
-                
-                // Créer le compte d'abord
                 let acc = Account(accountNumber: dto.accountNumber, label: dto.label, value: dto.value, positions: [])
-                
-                // Créer les positions et les associer au compte
-                let positions = dto.positions.map { posDTO in
-                    print("     Position: \(posDTO.libInstrument) - Value: \(posDTO.valeurMarcheDeviseSecurite)")
-                    return Position(dto: posDTO, account: acc)
-                }
+                let positions = dto.positions.map { Position(dto: $0, account: acc) }
                 acc.positions = positions
                 
-                print("   ↳ Account créé avec \(acc.positions.count) positions")
-                
-                // Sauvegarder en base
                 context.insert(acc)
                 for position in positions {
                     context.insert(position)
                 }
                 
-                // Créer un snapshot
                 let snapshot = Snapshot(account: acc)
                 context.insert(snapshot)
                 
                 models.append(acc)
-                print("   ↳ Account ajouté aux models. Total models: \(models.count)")
             }
             
-            // Sauvegarder le contexte
-            do {
-                try context.save()
-                print("✅ Context saved successfully")
-            } catch {
-                print("❌ Failed to save context: \(error)")
-                throw error
-            }
+            try context.save()
             
-            // Debug: vérifier les models avant assignation
-            print("📊 Models créés:")
-            for (index, model) in models.enumerated() {
-                print("   Model[\(index)]: \(model.accountNumber) - Value: \(model.value)")
-            }
-            
-            let calculatedTotal = models.reduce(0) { $0 + $1.value }
-            print("📊 Total calculé: \(calculatedTotal)")
-            
-            // Assignation sur le main thread
             self.accounts = models
-            self.totalValue = calculatedTotal
-            print("✅ UI Updated - Accounts: \(self.accounts.count), Total: \(self.totalValue)")
+            self.totalValue = models.reduce(0) { $0 + $1.value }
+            self.lastRefreshDate = Date()
+            
+            print("✅ Successfully loaded \(models.count) accounts, total: \(String(format: "%.2f", totalValue))€")
             
         } catch {
             print("⚠️ Error loading accounts: \(error.localizedDescription)")
             self.errorMessage = "Failed to load accounts: \(error.localizedDescription)"
-            dump(error)
+            
+            // En cas d'erreur, essayer de charger depuis le cache même expiré
+            await loadFromExpiredCache(context: context)
         }
         
         self.isLoading = false
-        print("🏁 Loading finished. Final state - Accounts: \(self.accounts.count), Total: \(self.totalValue)")
     }
-
-    /// Variante : charge automatiquement le JWT depuis le service d'authentification.
-    func loadFromAuthService(context: ModelContext) async {
-        guard let jwt = AuthService.shared.retrieveJWT() else {
-            print("❌ JWT manquant, authentification requise.")
-            self.errorMessage = "Authentication required"
-            return
-        }
-        
-        // Debug: vérifier l'âge du JWT (version simplifiée)
-        let jwtParts = jwt.split(separator: ".")
-        if jwtParts.count == 3 {
-            let payload = String(jwtParts[1])
-            if let payloadData = payload.base64Decoded(),
-               let jwtJson = try? JSONSerialization.jsonObject(with: payloadData, options: []) as? [String: Any],
-               let exp = jwtJson["exp"] as? TimeInterval {
-                let expirationDate = Date(timeIntervalSince1970: exp)
-                let now = Date()
-                print("🕐 JWT expires at: \(expirationDate)")
-                print("🕐 Current time: \(now)")
-                print("🕐 JWT expired: \(expirationDate < now)")
+    
+    /// En cas d'erreur API, charger depuis le cache même si expiré
+    private func loadFromExpiredCache(context: ModelContext) async {
+        do {
+            let descriptor = FetchDescriptor<Account>(sortBy: [SortDescriptor(\.accountNumber)])
+            let cachedAccounts = try context.fetch(descriptor)
+            
+            if !cachedAccounts.isEmpty {
+                self.accounts = cachedAccounts
+                self.totalValue = cachedAccounts.reduce(0) { $0 + $1.value }
                 
-                if expirationDate < now {
-                    print("⚠️ JWT is expired, should re-login")
-                    self.errorMessage = "Token expired, please re-login"
-                    return
+                // Trouver la date du dernier snapshot
+                let snapshotDescriptor = FetchDescriptor<Snapshot>(
+                    sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+                )
+                let snapshots = try context.fetch(snapshotDescriptor)
+                if let lastSnapshot = snapshots.first {
+                    self.lastRefreshDate = lastSnapshot.timestamp
+                    let hoursAgo = Date().timeIntervalSince(lastSnapshot.timestamp) / 3600
+                    print("📱 Using expired cache from \(String(format: "%.1f", hoursAgo))h ago (offline mode)")
                 }
             }
+        } catch {
+            print("❌ Failed to load expired cache: \(error)")
         }
-        
-        await load(jwt: jwt, context: context)
+    }
+    
+    /// Supprime les anciens comptes pour éviter les doublons
+    private func clearOldAccounts(context: ModelContext) async {
+        do {
+            // Supprimer les anciens comptes
+            let accountDescriptor = FetchDescriptor<Account>()
+            let oldAccounts = try context.fetch(accountDescriptor)
+            for account in oldAccounts {
+                context.delete(account)
+            }
+            
+            // Supprimer les anciennes positions
+            let positionDescriptor = FetchDescriptor<Position>()
+            let oldPositions = try context.fetch(positionDescriptor)
+            for position in oldPositions {
+                context.delete(position)
+            }
+            
+            // Garder seulement les 20 derniers snapshots (environ 10 jours d'historique à 2 mises à jour/jour)
+            let snapshotDescriptor = FetchDescriptor<Snapshot>(
+                sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+            )
+            let allSnapshots = try context.fetch(snapshotDescriptor)
+            if allSnapshots.count > 20 {
+                for snapshot in allSnapshots.dropFirst(20) {
+                    context.delete(snapshot)
+                }
+            }
+            
+        } catch {
+            print("❌ Failed to clear old data: \(error)")
+        }
+    }
+
+    /// Point d'entrée principal
+    func loadFromAuthService(context: ModelContext, forceRefresh: Bool = false) async {
+        await loadAccountsSmartly(context: context, forceRefresh: forceRefresh)
     }
     
     /// Force un nouveau login et reload
@@ -149,4 +257,25 @@ class AccountsListViewModel: ObservableObject {
             self.errorMessage = "Relogin failed: \(error.localizedDescription)"
         }
     }
-}
+    
+    /// Informations sur le cache adaptées aux données financières
+    var cacheInfo: String {
+        if let lastRefresh = lastRefreshDate {
+            let hoursAgo = Date().timeIntervalSince(lastRefresh) / 3600
+            if hoursAgo < 1 {
+                let minutesAgo = Int(Date().timeIntervalSince(lastRefresh) / 60)
+                return "Updated \(minutesAgo)min ago"
+            } else {
+                return "Updated \(String(format: "%.1f", hoursAgo))h ago"
+            }
+        }
+        return "No update data"
+    }
+    
+    /// Indique si les données sont probablement à jour
+    var isDataFresh: Bool {
+        guard let lastRefresh = lastRefreshDate else { return false }
+        let hoursAgo = Date().timeIntervalSince(lastRefresh) / 3600
+        return hoursAgo < 6 // Considéré frais si < 6h
+    }
+}g
