@@ -1,3 +1,4 @@
+// Fix 3: Oddo/Views/PortfolioOverviewView.swift (MUST BE ADDED TO SOURCES, NOT RESOURCES)
 import SwiftUI
 
 struct PortfolioOverviewView: View {
@@ -273,5 +274,33 @@ struct PerformerRow: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+#Preview {
+    // Mock data pour preview
+    let mockPortfolio = PortfolioStats(
+        totalValue: 100000,
+        totalPMVL: 5000,
+        totalPMVR: 0,
+        weightedPerformance: 5.5,
+        totalWeight: 100,
+        positionsCount: 15,
+        accountsCount: 2,
+        performanceByAssetClass: [:],
+        topPerformers: [],
+        worstPerformers: [],
+        lastUpdate: "2024-01-01T12:00:00",
+        formatted: FormattedPortfolioStats(
+            totalValue: "100,000.00 €",
+            totalPMVL: "+5,000.00 €",
+            weightedPerformance: "+5.50%",
+            pmvlColor: "green",
+            performanceColor: "green"
+        )
+    )
+    
+    NavigationView {
+        PortfolioOverviewView(portfolio: mockPortfolio)
     }
 }

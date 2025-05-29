@@ -1,4 +1,4 @@
-// Oddo/Services/APIService.swift
+// Fix 1: Oddo/Services/APIService.swift (CORRECTED - Remove APIError enum)
 
 import Foundation
 
@@ -31,6 +31,7 @@ final class APIService {
         var req = URLRequest(url: accountsURL)
         req.httpMethod = "GET"
         req.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
         
         print("→ Requesting accounts with stats from: \(accountsURL)")
         
@@ -42,7 +43,6 @@ final class APIService {
         }
         
         print("→ HTTP Status: \(httpResponse.statusCode)")
-        print("→ Response headers: \(httpResponse.allHeaderFields)")
         
         guard (200...299).contains(httpResponse.statusCode) else {
             print("❌ Bad status code: \(httpResponse.statusCode)")
@@ -52,18 +52,21 @@ final class APIService {
             throw URLError(.badServerResponse)
         }
         
+        // NOUVELLE VÉRIFICATION: Détecter si on reçoit du HTML au lieu de JSON
+        if let responseString = String(data: data, encoding: .utf8) {
+            if responseString.contains("<br />") || responseString.contains("<b>Warning</b>") || responseString.hasPrefix("<!DOCTYPE") {
+                print("❌ Server returned HTML instead of JSON")
+                print("❌ HTML Response: \(responseString.prefix(500))")
+                throw APIError(.serverError, "Server configuration error - check storage permissions")
+            }
+            
+            // Log seulement un aperçu du JSON valide
+            if responseString.hasPrefix("{") || responseString.hasPrefix("[") {
+                print("→ JSON Response preview: \(responseString.prefix(200))...")
+            }
+        }
+        
         print("→ Response data size: \(data.count) bytes")
-        
-        // Log du JSON complet pour debug
-        if let jsonString = String(data: data, encoding: .utf8) {
-            print("→ JSON Response preview: \(jsonString.prefix(500))...")
-        }
-        
-        // Si la réponse est vide, on va debug l'autorisation
-        if data.count <= 10 {
-            print("⚠️ Response trop petite, possible problème d'autorisation")
-            print("→ JWT utilisé: \(jwt.prefix(50))...")
-        }
         
         do {
             // Utiliser le decoder configuré avec le DateFormatter
@@ -91,6 +94,12 @@ final class APIService {
                     print("❌ Key not found: \(key), context: \(context)")
                 case .dataCorrupted(let context):
                     print("❌ Data corrupted: \(context)")
+                    // Si les données sont corrompues, c'est probablement du HTML
+                    if let responseString = String(data: data, encoding: .utf8) {
+                        if responseString.contains("<br />") {
+                            throw APIError(.serverError, "Server error - check logs")
+                        }
+                    }
                 @unknown default:
                     print("❌ Unknown decoding error: \(error)")
                 }

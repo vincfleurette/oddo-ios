@@ -31,13 +31,59 @@ class AccountsListViewModel: ObservableObject {
         do {
             let info = try await CacheService.shared.getCacheInfo(jwt: jwt)
             self.serverCacheInfo = info
-            print("📊 Server cache info: \(info.statusDescription)")
+            print("📊 Server cache info loaded successfully")
+            if let path = info.cachePath {
+                print("   Cache path: \(path)")
+            }
+            print("   Status: \(info.statusDescription)")
+            if let count = info.accountsCount {
+                print("   Accounts: \(count)")
+            }
         } catch {
             print("❌ Failed to load server cache info: \(error)")
+            
+            // Créer une info de cache par défaut pour éviter le crash
+            self.serverCacheInfo = createDefaultCacheInfo()
+            
+            // Log détaillé de l'erreur pour debug
+            if let decodingError = error as? DecodingError {
+                switch decodingError {
+                case .keyNotFound(let key, let context):
+                    print("❌ Missing key '\(key.stringValue)' in server response")
+                    print("❌ Context: \(context)")
+                case .dataCorrupted(let context):
+                    print("❌ Data corrupted: \(context)")
+                default:
+                    print("❌ Other decoding error: \(decodingError)")
+                }
+            }
         }
     }
-    
-    /// Invalide le cache serveur et local
+
+    /// Crée une info de cache par défaut en cas d'erreur serveur
+    private func createDefaultCacheInfo() -> CacheInfo? {
+        // Utiliser un dictionnaire simple qui sera converti en CacheInfo
+        let defaultData: [String: Any] = [
+            "cacheExists": false,
+            "cacheTtl": 21600,
+            "cacheTtlHuman": "6h 0m",
+            "accountsCount": 0,
+            "fileSizeBytes": 0,
+            "fileSizeHuman": "0 B",
+            "message": "Server cache info unavailable"
+        ]
+        
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: defaultData)
+            let decoder = JSONDecoder()
+            return try decoder.decode(CacheInfo.self, from: jsonData)
+        } catch {
+            print("❌ Failed to create default cache info: \(error)")
+            return nil
+        }
+    }
+
+    /// Version robuste de invalidateAllCaches avec fallback
     func invalidateAllCaches(context: ModelContext) async {
         guard let jwt = AuthService.shared.retrieveJWT() else {
             self.errorMessage = "Authentication required"
@@ -56,8 +102,18 @@ class AccountsListViewModel: ObservableObject {
             print("✅ All caches invalidated and data refreshed")
             
         } catch {
-            print("❌ Cache invalidation failed: \(error)")
-            self.errorMessage = "Failed to invalidate cache: \(error.localizedDescription)"
+            print("❌ Server cache invalidation failed: \(error)")
+            
+            // Même si le cache serveur échoue, on peut continuer avec le local
+            await clearLocalCache(context: context)
+            await load(jwt: jwt, context: context)
+            
+            // Ne pas afficher l'erreur de cache comme critique
+            if self.accounts.count > 0 {
+                print("✅ Data refreshed despite server cache error")
+            } else {
+                self.errorMessage = "Failed to refresh data: \(error.localizedDescription)"
+            }
         }
         
         isLoading = false

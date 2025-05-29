@@ -1,4 +1,4 @@
-// Oddo/Services/CacheService.swift
+// Fix: Oddo/Services/CacheService.swift - MODÈLE FLEXIBLE POUR VOTRE API
 
 import Foundation
 
@@ -15,11 +15,12 @@ final class CacheService {
     
     // MARK: - Cache Info
     
-    /// Récupère les informations du cache serveur
+    /// Récupère les informations du cache serveur avec debug
     func getCacheInfo(jwt: String) async throws -> CacheInfo {
         var req = URLRequest(url: baseURL.appendingPathComponent("cache/info"))
         req.httpMethod = "GET"
         req.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
         
         let (data, response) = try await URLSession.shared.data(for: req)
         
@@ -28,7 +29,13 @@ final class CacheService {
         }
         
         guard (200...299).contains(httpResponse.statusCode) else {
+            print("❌ Cache info HTTP status: \(httpResponse.statusCode)")
             throw URLError(.badServerResponse)
+        }
+        
+        // DEBUG: Voir la réponse JSON brute
+        if let jsonString = String(data: data, encoding: .utf8) {
+            print("🔍 Raw cache info response: \(jsonString)")
         }
         
         let decoder = JSONDecoder()
@@ -42,6 +49,7 @@ final class CacheService {
         var req = URLRequest(url: baseURL.appendingPathComponent("cache"))
         req.httpMethod = "DELETE"
         req.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
         
         let (data, response) = try await URLSession.shared.data(for: req)
         
@@ -64,6 +72,7 @@ final class CacheService {
         var req = URLRequest(url: baseURL.appendingPathComponent("cache/refresh"))
         req.httpMethod = "POST"
         req.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
         
         let (data, response) = try await URLSession.shared.data(for: req)
         
@@ -80,22 +89,65 @@ final class CacheService {
     }
 }
 
-// MARK: - Models
+// MARK: - Models (ADAPTÉS À VOTRE API ACTUELLE)
 
 struct CacheInfo: Codable {
-    let cachePath: String
-    let cacheExists: Bool
-    let cacheTtl: Int
-    let cacheTtlHuman: String
-    let cacheTimestamp: String?
-    let cacheAge: Int?
-    let cacheAgeHuman: String?
+    let key: String?
+    let timestamp: String?
+    let age: Int?
+    let ageHuman: String?
+    let ttl: Int?
     let isExpired: Bool?
     let expiresIn: Int?
     let expiresInHuman: String?
-    let accountsCount: Int?
-    let fileSizeBytes: Int?
-    let fileSizeHuman: String?
+    let size: Int?
+    let message: String?
+    
+    // Propriétés calculées pour compatibilité avec l'interface
+    var cachePath: String? {
+        return key ?? "cache_info"
+    }
+    
+    var cacheExists: Bool {
+        return timestamp != nil && !timestamp!.isEmpty
+    }
+    
+    var cacheTtl: Int? {
+        return ttl ?? 21600
+    }
+    
+    var cacheTtlHuman: String? {
+        let ttlValue = ttl ?? 21600
+        let hours = ttlValue / 3600
+        let minutes = (ttlValue % 3600) / 60
+        return "\(hours)h \(minutes)m"
+    }
+    
+    var cacheTimestamp: String? {
+        return timestamp
+    }
+    
+    var cacheAge: Int? {
+        return age
+    }
+    
+    var cacheAgeHuman: String? {
+        return ageHuman
+    }
+    
+    var accountsCount: Int? {
+        // Cette info n'est pas disponible dans la réponse actuelle
+        return nil
+    }
+    
+    var fileSizeBytes: Int? {
+        return size
+    }
+    
+    var fileSizeHuman: String? {
+        guard let bytes = size else { return nil }
+        return formatFileSize(bytes)
+    }
     
     var isValid: Bool {
         guard let isExpired = isExpired else { return false }
@@ -111,6 +163,20 @@ struct CacheInfo: Codable {
             return "Unknown"
         }
     }
+    
+    // Helper pour formater la taille des fichiers
+    private func formatFileSize(_ bytes: Int) -> String {
+        let units = ["B", "KB", "MB", "GB"]
+        var value = Double(bytes)
+        var unitIndex = 0
+        
+        while value >= 1024 && unitIndex < units.count - 1 {
+            value /= 1024
+            unitIndex += 1
+        }
+        
+        return String(format: "%.1f %@", value, units[unitIndex])
+    }
 }
 
 struct CacheOperationResult: Codable {
@@ -119,4 +185,5 @@ struct CacheOperationResult: Codable {
     let cachePath: String?
     let timestamp: String
     let accountsCount: Int?
+    let userId: String?
 }

@@ -34,6 +34,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				"ViewModels/PortfolioOverviewViewModel.swift ",
 				Views/PortfolioOverviewView.swift,
 			);
 			target = F20F7F4F2DD374D60028F750 /* Oddo */;
@@ -45,6 +46,7 @@
 			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
 			buildPhase = F20F7F4E2DD374D60028F750 /* Resources */;
 			membershipExceptions = (
+				"ViewModels/PortfolioOverviewViewModel.swift ",
 				Views/PortfolioOverviewView.swift,
 			);
 			platformFiltersByRelativePath = {
@@ -60,6 +62,10 @@
 				F2F693922DE06BBC00CBBBBE /* Exceptions for "Oddo" folder in "Oddo" target */,
 				F22E47322DE218210092DC7C /* Exceptions for "Oddo" folder in "Copy Bundle Resources" phase from "Oddo" target */,
 			);
+			explicitFileTypes = {
+				"ViewModels/PortfolioOverviewViewModel.swift " = sourcecode.swift;
+				Views/PortfolioOverviewView.swift = sourcecode.swift;
+			};
 			path = Oddo;
 			sourceTree = "<group>";
 		};
@@ -199,7 +205,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1630;
-				LastUpgradeCheck = 1630;
+				LastUpgradeCheck = 1640;
 				TargetAttributes = {
 					F20F7F4F2DD374D60028F750 = {
 						CreatedOnToolsVersion = 16.3;
@@ -373,6 +379,7 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
@@ -424,7 +431,7 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
-				ONLY_ACTIVE_ARCH = NO;
+				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -436,6 +443,7 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";

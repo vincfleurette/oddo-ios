@@ -20,4 +20,6 @@ class AccountDetailViewModel: ObservableObject {
             snapshots = []
         }
     }
+    
+    
 }

@@ -1,3 +1,5 @@
+// Oddo/Views/AccountsListView.swift - FICHIER COMPLET AVEC FIX NAVIGATION SEULEMENT
+
 import SwiftUI
 import SwiftData
 
@@ -5,6 +7,7 @@ struct AccountsListView: View {
     @StateObject private var vm = AccountsListViewModel()
     @Environment(\.modelContext) private var context
     @State private var showingCacheSheet = false
+    @State private var selectedAccount: Account? // AJOUTÉ pour fix navigation
 
     var body: some View {
         NavigationStack {
@@ -116,15 +119,22 @@ struct AccountsListView: View {
                         .padding()
                     }
                     
-                    // Liste des comptes
+                    // NAVIGATION CORRIGÉE: Liste des comptes
                     if !vm.accounts.isEmpty {
                         List(vm.accounts) { account in
-                            NavigationLink(value: account) {
+                            Button(action: {
+                                // Gestion de navigation avec délai pour éviter les conflits
+                                DispatchQueue.main.async {
+                                    selectedAccount = account
+                                }
+                            }) {
                                 AccountRowView(account: account)
+                                    .contentShape(Rectangle()) // Pour que toute la zone soit tappable
                             }
+                            .buttonStyle(PlainButtonStyle()) // Évite le style bouton par défaut
                         }
-                        .navigationDestination(for: Account.self) { acc in
-                            AccountDetailView(account: acc)
+                        .navigationDestination(item: $selectedAccount) { account in
+                            AccountDetailView(account: account)
                         }
                     }
                 }
@@ -184,6 +194,9 @@ struct AccountsListView: View {
                 CacheInfoSheet(viewModel: vm, context: context)
             }
         }
+        // AJOUTÉ: Animations contrôlées pour éviter les mises à jour multiples
+        .animation(.easeInOut(duration: 0.3), value: vm.accounts.count)
+        .animation(.easeInOut(duration: 0.3), value: vm.isLoading)
     }
 }
 
@@ -282,20 +295,10 @@ struct CacheInfoSheet: View {
                             }
                             
                             InfoRow(label: "Status", value: serverCache.statusDescription)
-                            
-                            if let timestamp = serverCache.cacheTimestamp {
-                                InfoRow(label: "Created", value: formatDate(timestamp))
-                            }
-                            
-                            if let ageHuman = serverCache.cacheAgeHuman {
-                                InfoRow(label: "Age", value: ageHuman)
-                            }
-                            
-                            if let expiresInHuman = serverCache.expiresInHuman {
-                                InfoRow(label: "Expires In", value: expiresInHuman)
-                            }
-                            
-                            InfoRow(label: "TTL", value: serverCache.cacheTtlHuman)
+                            InfoRow(label: "Created", value: formatDate(serverCache.cacheTimestamp))
+                            InfoRow(label: "Age", value: serverCache.cacheAgeHuman ?? "N/A")
+                            InfoRow(label: "Expires In", value: serverCache.expiresInHuman ?? "N/A")
+                            InfoRow(label: "TTL", value: serverCache.cacheTtlHuman ?? "N/A")
                         }
                         .padding()
                         .background(Color(.systemGray6))
@@ -379,14 +382,21 @@ struct CacheInfoSheet: View {
         }
     }
     
-    private func formatDate(_ dateString: String) -> String {
+    // Gestion des optionals pour formatDate
+    private func formatDate(_ dateString: String?) -> String {
+        guard let dateString = dateString, !dateString.isEmpty else {
+            return "N/A"
+        }
+        
         let formatter = ISO8601DateFormatter()
         if let date = formatter.date(from: dateString) {
             let displayFormatter = DateFormatter()
             displayFormatter.dateStyle = .medium
             displayFormatter.timeStyle = .short
+            displayFormatter.locale = Locale.current
             return displayFormatter.string(from: date)
         }
+        
         return dateString
     }
 }
@@ -408,7 +418,8 @@ struct InfoRow: View {
     }
 }
 
-// Vue de ligne de compte optimisée
+// MARK: - Account Row View (CORRIGÉE pour navigation)
+
 struct AccountRowView: View {
     let account: Account
     
@@ -419,6 +430,7 @@ struct AccountRowView: View {
                     Text(account.label.isEmpty ? account.accountNumber : account.label)
                         .font(.headline)
                         .lineLimit(2)
+                        .foregroundColor(.primary) // AJOUTÉ pour le style bouton
                     
                     Text(account.accountNumber)
                         .font(.caption)
@@ -438,9 +450,9 @@ struct AccountRowView: View {
                 }
             }
             
-            // Barre de progression visuelle (optionnelle)
+            // Barre de progression visuelle
             if account.value > 0 {
-                ProgressView(value: account.value, total: 200000) // Ajustez selon vos besoins
+                ProgressView(value: account.value, total: 200000)
                     .progressViewStyle(LinearProgressViewStyle(tint: .blue))
                     .scaleEffect(y: 0.5)
             }
