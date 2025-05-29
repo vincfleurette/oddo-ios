@@ -34,16 +34,31 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				Views/PortfolioOverviewView.swift,
 			);
 			target = F20F7F4F2DD374D60028F750 /* Oddo */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
+		F22E47322DE218210092DC7C /* Exceptions for "Oddo" folder in "Copy Bundle Resources" phase from "Oddo" target */ = {
+			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
+			buildPhase = F20F7F4E2DD374D60028F750 /* Resources */;
+			membershipExceptions = (
+				Views/PortfolioOverviewView.swift,
+			);
+			platformFiltersByRelativePath = {
+				Views/PortfolioOverviewView.swift = (ios, );
+			};
+		};
+/* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		F20F7F522DD374D60028F750 /* Oddo */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				F2F693922DE06BBC00CBBBBE /* Exceptions for "Oddo" folder in "Oddo" target */,
+				F22E47322DE218210092DC7C /* Exceptions for "Oddo" folder in "Copy Bundle Resources" phase from "Oddo" target */,
 			);
 			path = Oddo;
 			sourceTree = "<group>";

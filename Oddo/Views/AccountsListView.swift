@@ -4,6 +4,7 @@ import SwiftData
 struct AccountsListView: View {
     @StateObject private var vm = AccountsListViewModel()
     @Environment(\.modelContext) private var context
+    @State private var showingCacheSheet = false
 
     var body: some View {
         NavigationStack {
@@ -29,7 +30,7 @@ struct AccountsListView: View {
                             
                             Spacer()
                             
-                            // Indicateur de fraîcheur des données
+                            // Indicateur de fraîcheur des données avec performance
                             VStack(alignment: .trailing) {
                                 HStack {
                                     Image(systemName: vm.isDataFresh ? "checkmark.circle.fill" : "clock.circle.fill")
@@ -38,14 +39,29 @@ struct AccountsListView: View {
                                         .font(.caption)
                                         .fontWeight(.medium)
                                 }
-                                Text(vm.cacheInfo)
+                                
+                                // Afficher la performance du portefeuille si disponible
+                                if let portfolio = vm.portfolioStats {
+                                    Text(portfolio.formatted.weightedPerformance)
+                                        .font(.caption)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(portfolio.formatted.performanceColor == "green" ? .green : .red)
+                                }
+                                
+                                Text(vm.combinedCacheStatus)
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.trailing)
                             }
                         }
                         .padding(.horizontal)
                         
-                        // Barre de séparation
+                        // Statistiques du portefeuille si disponibles
+                        if let portfolio = vm.portfolioStats {
+                            PortfolioSummaryBanner(portfolio: portfolio)
+                        }
+                        
                         Divider()
                     }
                     
@@ -117,15 +133,31 @@ struct AccountsListView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
-                        Button("Refresh Now") {
+                        Button("🔄 Refresh Data") {
                             Task {
                                 await vm.loadFromAuthService(context: context, forceRefresh: true)
                             }
                         }
                         .disabled(vm.isLoading)
                         
-                        Button("Clear Cache") {
-                            // TODO: Implémenter si nécessaire
+                        Button("🚀 Force Server Refresh") {
+                            Task {
+                                await vm.forceServerCacheRefresh(context: context)
+                            }
+                        }
+                        .disabled(vm.isLoading)
+                        
+                        Button("🗑️ Clear All Caches") {
+                            Task {
+                                await vm.invalidateAllCaches(context: context)
+                            }
+                        }
+                        .disabled(vm.isLoading)
+                        
+                        Divider()
+                        
+                        Button("📊 Cache Info") {
+                            showingCacheSheet = true
                         }
                         
                         Divider()
@@ -139,17 +171,239 @@ struct AccountsListView: View {
             }
             .task {
                 print("🎬 AccountsListView task started - Financial data mode")
-                // Charge intelligemment (cache en priorité)
                 await vm.loadFromAuthService(context: context, forceRefresh: false)
             }
             .refreshable {
                 print("🔄 Pull-to-refresh - Force API refresh")
-                // Pull-to-refresh force un rechargement depuis l'API
                 await vm.loadFromAuthService(context: context, forceRefresh: true)
             }
             .onAppear {
                 print("👁️ AccountsListView appeared - Accounts: \(vm.accounts.count), Total: \(vm.totalValue)€")
             }
+            .sheet(isPresented: $showingCacheSheet) {
+                CacheInfoSheet(viewModel: vm, context: context)
+            }
+        }
+    }
+}
+
+// MARK: - Portfolio Summary Banner
+
+struct PortfolioSummaryBanner: View {
+    let portfolio: PortfolioStats
+    
+    var body: some View {
+        HStack {
+            // Performance globale
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Performance")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                HStack {
+                    Image(systemName: portfolio.weightedPerformance >= 0 ? "arrow.up.right" : "arrow.down.right")
+                        .font(.caption2)
+                    Text(portfolio.formatted.weightedPerformance)
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                }
+                .foregroundColor(portfolio.formatted.performanceColor == "green" ? .green : .red)
+            }
+            
+            Spacer()
+            
+            // P&L
+            VStack(alignment: .center, spacing: 2) {
+                Text("P&L")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                Text(portfolio.formatted.totalPMVL)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(portfolio.formatted.pmvlColor == "green" ? .green : .red)
+            }
+            
+            Spacer()
+            
+            // Nombre de positions
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("Positions")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                Text("\(portfolio.positionsCount)")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(Color(.systemGray6))
+        .cornerRadius(8)
+        .padding(.horizontal)
+    }
+}
+
+// MARK: - Cache Info Sheet
+
+struct CacheInfoSheet: View {
+    @ObservedObject var viewModel: AccountsListViewModel
+    let context: ModelContext
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                LazyVStack(spacing: 16) {
+                    // Local Cache Section
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Image(systemName: "iphone")
+                                .foregroundColor(.blue)
+                            Text("Local Cache (iOS)")
+                                .font(.headline)
+                        }
+                        
+                        InfoRow(label: "Status", value: viewModel.isDataFresh ? "Fresh" : "Expired")
+                        InfoRow(label: "Last Update", value: viewModel.localCacheInfo)
+                        InfoRow(label: "Accounts", value: "\(viewModel.accounts.count)")
+                        InfoRow(label: "Total Value", value: String(format: "%.2f €", viewModel.totalValue))
+                    }
+                    .padding()
+                    .background(Color(.systemGray6))
+                    .cornerRadius(12)
+                    
+                    // Server Cache Section
+                    if let serverCache = viewModel.serverCacheInfo {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Image(systemName: "server.rack")
+                                    .foregroundColor(.green)
+                                Text("Server Cache")
+                                    .font(.headline)
+                            }
+                            
+                            InfoRow(label: "Status", value: serverCache.statusDescription)
+                            
+                            if let timestamp = serverCache.cacheTimestamp {
+                                InfoRow(label: "Created", value: formatDate(timestamp))
+                            }
+                            
+                            if let ageHuman = serverCache.cacheAgeHuman {
+                                InfoRow(label: "Age", value: ageHuman)
+                            }
+                            
+                            if let expiresInHuman = serverCache.expiresInHuman {
+                                InfoRow(label: "Expires In", value: expiresInHuman)
+                            }
+                            
+                            InfoRow(label: "TTL", value: serverCache.cacheTtlHuman)
+                        }
+                        .padding()
+                        .background(Color(.systemGray6))
+                        .cornerRadius(12)
+                    }
+                    
+                    // Portfolio Stats Section (si disponible)
+                    if let portfolio = viewModel.portfolioStats {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Image(systemName: "chart.pie.fill")
+                                    .foregroundColor(.purple)
+                                Text("Portfolio Statistics")
+                                    .font(.headline)
+                            }
+                            
+                            InfoRow(label: "Performance", value: portfolio.formatted.weightedPerformance)
+                            InfoRow(label: "Unrealized P&L", value: portfolio.formatted.totalPMVL)
+                            InfoRow(label: "Positions", value: "\(portfolio.positionsCount)")
+                            InfoRow(label: "Asset Classes", value: "\(portfolio.performanceByAssetClass.count)")
+                            
+                            if !portfolio.topPerformers.isEmpty {
+                                InfoRow(label: "Top Performer", value: portfolio.topPerformers[0].libInstrument)
+                            }
+                        }
+                        .padding()
+                        .background(Color(.systemGray6))
+                        .cornerRadius(12)
+                    }
+                    
+                    // Actions Section
+                    VStack(spacing: 12) {
+                        Text("Cache Actions")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        
+                        Button("🔄 Refresh Local Cache") {
+                            Task {
+                                await viewModel.loadFromAuthService(context: context, forceRefresh: true)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(viewModel.isLoading)
+                        
+                        Button("🚀 Force Server Cache Refresh") {
+                            Task {
+                                await viewModel.forceServerCacheRefresh(context: context)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(viewModel.isLoading)
+                        
+                        Button("🗑️ Clear All Caches") {
+                            Task {
+                                await viewModel.invalidateAllCaches(context: context)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(viewModel.isLoading)
+                        
+                        if viewModel.isLoading {
+                            ProgressView("Processing...")
+                                .padding()
+                        }
+                    }
+                    .padding()
+                    .background(Color(.systemGray6))
+                    .cornerRadius(12)
+                }
+                .padding()
+            }
+            .navigationTitle("Cache Management")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+    
+    private func formatDate(_ dateString: String) -> String {
+        let formatter = ISO8601DateFormatter()
+        if let date = formatter.date(from: dateString) {
+            let displayFormatter = DateFormatter()
+            displayFormatter.dateStyle = .medium
+            displayFormatter.timeStyle = .short
+            return displayFormatter.string(from: date)
+        }
+        return dateString
+    }
+}
+
+// MARK: - Helper Views
+
+struct InfoRow: View {
+    let label: String
+    let value: String
+    
+    var body: some View {
+        HStack {
+            Text(label)
+                .foregroundColor(.secondary)
+            Spacer()
+            Text(value)
+                .fontWeight(.medium)
         }
     }
 }

@@ -26,12 +26,13 @@ final class APIService {
     
     var accountsURL: URL { baseURL.appendingPathComponent("accounts") }
 
-    func fetchAccounts(jwt: String) async throws -> [AccountDTO] {
+    /// Récupère les comptes avec statistiques de performance
+    func fetchAccountsWithStats(jwt: String) async throws -> AccountsResponse {
         var req = URLRequest(url: accountsURL)
         req.httpMethod = "GET"
         req.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
         
-        print("→ Requesting accounts from: \(accountsURL)")
+        print("→ Requesting accounts with stats from: \(accountsURL)")
         
         let (data, response) = try await URLSession.shared.data(for: req)
         
@@ -55,7 +56,7 @@ final class APIService {
         
         // Log du JSON complet pour debug
         if let jsonString = String(data: data, encoding: .utf8) {
-            print("→ JSON Response COMPLETE: \(jsonString)")
+            print("→ JSON Response preview: \(jsonString.prefix(500))...")
         }
         
         // Si la réponse est vide, on va debug l'autorisation
@@ -66,15 +67,16 @@ final class APIService {
         
         do {
             // Utiliser le decoder configuré avec le DateFormatter
-            let accounts = try jsonDecoder.decode([AccountDTO].self, from: data)
-            print("→ Successfully decoded \(accounts.count) accounts")
+            let accountsResponse = try jsonDecoder.decode(AccountsResponse.self, from: data)
+            print("→ Successfully decoded \(accountsResponse.accounts.count) accounts with portfolio stats")
             
-            // Log des positions pour vérification
-            for account in accounts {
-                print("   Account \(account.accountNumber): \(account.positions.count) positions")
-            }
+            // Log des statistiques pour vérification
+            let portfolio = accountsResponse.portfolio
+            print("   Portfolio total: \(portfolio.formatted.totalValue)")
+            print("   Portfolio performance: \(portfolio.formatted.weightedPerformance)")
+            print("   Top performer: \(portfolio.topPerformers.first?.libInstrument ?? "N/A")")
             
-            return accounts
+            return accountsResponse
         } catch {
             print("❌ JSON Decoding error: \(error)")
             
@@ -98,9 +100,9 @@ final class APIService {
         }
     }
     
-    // MARK: - Get Positions (Deprecated - positions incluses dans accounts)
-    func fetchPositions(for accountNumber: String, jwt: String) async throws -> [PositionDTO] {
-        // Les positions sont maintenant incluses dans la réponse accounts
-        return []
+    /// Méthode legacy pour compatibilité (retourne juste les comptes)
+    func fetchAccounts(jwt: String) async throws -> [AccountDTO] {
+        let response = try await fetchAccountsWithStats(jwt: jwt)
+        return response.accounts
     }
 }

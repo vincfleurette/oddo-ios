@@ -36,6 +36,11 @@ class Position {
     var weightMinute: Double
     var reportingAssetClassCode: String
     
+    // Nouveaux champs performance
+    var performance: Double
+    var classActif: String
+    var closingPriceInListingCurrency: Double
+    
     // Relation inverse vers Account
     @Relationship var account: Account?
 
@@ -51,7 +56,38 @@ class Position {
         self.pmvr = dto.pmvr
         self.weightMinute = dto.weightMinute
         self.reportingAssetClassCode = dto.reportingAssetClassCode
+        
+        // Nouveaux champs
+        self.performance = dto.performance
+        self.classActif = dto.classActif
+        self.closingPriceInListingCurrency = dto.closingPriceInListingCurrency
+        
         self.account = account
+    }
+    
+    // Propriétés calculées pour l'affichage
+    var formattedPerformance: String {
+        return String(format: "%+.2f%%", performance)
+    }
+    
+    var isPerformancePositive: Bool {
+        return performance >= 0
+    }
+    
+    var formattedPMVL: String {
+        return String(format: "%+.2f €", pmvl)
+    }
+    
+    var isPMVLPositive: Bool {
+        return pmvl >= 0
+    }
+    
+    var formattedMarketValue: String {
+        return String(format: "%.2f €", valeurMarcheDeviseSecurite)
+    }
+    
+    var formattedWeight: String {
+        return String(format: "%.1f%%", weightMinute)
     }
 }
 
@@ -87,7 +123,10 @@ class Snapshot {
                     pmvl: pos.pmvl,
                     pmvr: pos.pmvr,
                     weightMinute: pos.weightMinute,
-                    reportingAssetClassCode: pos.reportingAssetClassCode
+                    reportingAssetClassCode: pos.reportingAssetClassCode,
+                    performance: pos.performance,
+                    classActif: pos.classActif,
+                    closingPriceInListingCurrency: pos.closingPriceInListingCurrency
                 )
             })
         } catch {

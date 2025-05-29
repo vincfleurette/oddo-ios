@@ -18,29 +18,92 @@ class AccountsListViewModel: ObservableObject {
     @Published var totalValue: Double = 0
     @Published var isLoading = false
     @Published var errorMessage: String?
+    @Published var serverCacheInfo: CacheInfo?
+    @Published var portfolioStats: PortfolioStats?
     
     private var lastRefreshDate: Date?
-    private let cacheValidityDuration: TimeInterval = 6 * 3600 // 6 heures (données mises à jour toutes les 12h)
+    private let cacheValidityDuration: TimeInterval = 6 * 3600 // 6 heures
+
+    /// Charge les informations du cache serveur
+    func loadServerCacheInfo() async {
+        guard let jwt = AuthService.shared.retrieveJWT() else { return }
+        
+        do {
+            let info = try await CacheService.shared.getCacheInfo(jwt: jwt)
+            self.serverCacheInfo = info
+            print("📊 Server cache info: \(info.statusDescription)")
+        } catch {
+            print("❌ Failed to load server cache info: \(error)")
+        }
+    }
     
-    // Calcul des heures de mise à jour (supposons 9h et 21h par exemple)
-    private let dataUpdateHours: [Int] = [9, 21] // 9h00 et 21h00
+    /// Invalide le cache serveur et local
+    func invalidateAllCaches(context: ModelContext) async {
+        guard let jwt = AuthService.shared.retrieveJWT() else {
+            self.errorMessage = "Authentication required"
+            return
+        }
+        
+        isLoading = true
+        
+        do {
+            let result = try await CacheService.shared.invalidateCache(jwt: jwt)
+            print("🗑️ Server cache invalidation: \(result.message)")
+            
+            await clearLocalCache(context: context)
+            await load(jwt: jwt, context: context)
+            
+            print("✅ All caches invalidated and data refreshed")
+            
+        } catch {
+            print("❌ Cache invalidation failed: \(error)")
+            self.errorMessage = "Failed to invalidate cache: \(error.localizedDescription)"
+        }
+        
+        isLoading = false
+    }
+    
+    /// Force le refresh du cache serveur
+    func forceServerCacheRefresh(context: ModelContext) async {
+        guard let jwt = AuthService.shared.retrieveJWT() else {
+            self.errorMessage = "Authentication required"
+            return
+        }
+        
+        isLoading = true
+        
+        do {
+            let result = try await CacheService.shared.refreshCache(jwt: jwt)
+            print("🔄 Server cache refresh: \(result.message)")
+            
+            await clearLocalCache(context: context)
+            await load(jwt: jwt, context: context)
+            
+            print("✅ Server cache refreshed and data reloaded")
+            
+        } catch {
+            print("❌ Server cache refresh failed: \(error)")
+            self.errorMessage = "Failed to refresh server cache: \(error.localizedDescription)"
+        }
+        
+        isLoading = false
+    }
 
     /// Charge les comptes en utilisant le cache intelligent pour données financières
     func loadAccountsSmartly(context: ModelContext, forceRefresh: Bool = false) async {
-        // 1. Si force refresh, aller directement à l'API
+        await loadServerCacheInfo()
+        
         if forceRefresh {
             print("🔄 Force refresh requested")
             await loadFromAPI(context: context)
             return
         }
         
-        // 2. Vérifier si on a des données récentes en cache
         if await loadFromLocalCache(context: context) {
             print("✅ Using cached data (financial data updates every 12h)")
             return
         }
         
-        // 3. Sinon, charger depuis l'API
         print("📡 Cache expired or empty, loading from API")
         await loadFromAPI(context: context)
     }
@@ -56,7 +119,6 @@ class AccountsListViewModel: ObservableObject {
                 return false
             }
             
-            // Vérifier la fraîcheur via les snapshots
             let snapshotDescriptor = FetchDescriptor<Snapshot>(
                 sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
             )
@@ -66,7 +128,6 @@ class AccountsListViewModel: ObservableObject {
                 let timeSinceLastUpdate = Date().timeIntervalSince(lastSnapshot.timestamp)
                 let hoursAgo = timeSinceLastUpdate / 3600
                 
-                // Si les données ont moins de 6 heures, les utiliser
                 if timeSinceLastUpdate < cacheValidityDuration {
                     self.accounts = cachedAccounts
                     self.totalValue = cachedAccounts.reduce(0) { $0 + $1.value }
@@ -80,7 +141,6 @@ class AccountsListViewModel: ObservableObject {
                 }
             }
             
-            // Pas de snapshot récent
             print("❌ No recent snapshot found")
             return false
             
@@ -98,7 +158,6 @@ class AccountsListViewModel: ObservableObject {
             return
         }
         
-        // Vérifier l'expiration du JWT
         if isJWTExpired(jwt) {
             self.errorMessage = "Token expired, please re-login"
             return
@@ -136,42 +195,83 @@ class AccountsListViewModel: ObservableObject {
         errorMessage = nil
         
         do {
-            let dtos = try await APIService.shared.fetchAccounts(jwt: jwt)
-            print("→ Received \(dtos.count) accounts from API")
-            
-            // Supprimer les anciens comptes pour éviter les doublons
-            await clearOldAccounts(context: context)
-            
-            var models: [Account] = []
-            for dto in dtos {
-                let acc = Account(accountNumber: dto.accountNumber, label: dto.label, value: dto.value, positions: [])
-                let positions = dto.positions.map { Position(dto: $0, account: acc) }
-                acc.positions = positions
+            // Essayer d'abord la nouvelle méthode avec stats
+            if let accountsResponse = try? await APIService.shared.fetchAccountsWithStats(jwt: jwt) {
+                print("→ Received \(accountsResponse.accounts.count) accounts with portfolio stats")
                 
-                context.insert(acc)
-                for position in positions {
-                    context.insert(position)
+                // Stocker les statistiques du portefeuille
+                self.portfolioStats = accountsResponse.portfolio
+                
+                await clearLocalCache(context: context)
+                
+                var models: [Account] = []
+                for dto in accountsResponse.accounts {
+                    let acc = Account(accountNumber: dto.accountNumber, label: dto.label, value: dto.value, positions: [])
+                    let positions = dto.positions.map { Position(dto: $0, account: acc) }
+                    acc.positions = positions
+                    
+                    context.insert(acc)
+                    for position in positions {
+                        context.insert(position)
+                    }
+                    
+                    let snapshot = Snapshot(account: acc)
+                    context.insert(snapshot)
+                    
+                    models.append(acc)
                 }
                 
-                let snapshot = Snapshot(account: acc)
-                context.insert(snapshot)
+                try context.save()
                 
-                models.append(acc)
+                self.accounts = models
+                self.totalValue = models.reduce(0) { $0 + $1.value }
+                self.lastRefreshDate = Date()
+                
+                await loadServerCacheInfo()
+                
+                print("✅ Successfully loaded \(models.count) accounts with stats, total: \(String(format: "%.2f", totalValue))€")
+                print("📊 Portfolio performance: \(accountsResponse.portfolio.formatted.weightedPerformance)")
+                
+            } else {
+                // Fallback vers l'ancienne méthode
+                print("→ Using fallback method without stats")
+                let dtos = try await APIService.shared.fetchAccounts(jwt: jwt)
+                print("→ Received \(dtos.count) accounts (legacy mode)")
+                
+                await clearLocalCache(context: context)
+                
+                var models: [Account] = []
+                for dto in dtos {
+                    let acc = Account(accountNumber: dto.accountNumber, label: dto.label, value: dto.value, positions: [])
+                    let positions = dto.positions.map { Position(dto: $0, account: acc) }
+                    acc.positions = positions
+                    
+                    context.insert(acc)
+                    for position in positions {
+                        context.insert(position)
+                    }
+                    
+                    let snapshot = Snapshot(account: acc)
+                    context.insert(snapshot)
+                    
+                    models.append(acc)
+                }
+                
+                try context.save()
+                
+                self.accounts = models
+                self.totalValue = models.reduce(0) { $0 + $1.value }
+                self.lastRefreshDate = Date()
+                
+                await loadServerCacheInfo()
+                
+                print("✅ Successfully loaded \(models.count) accounts (legacy), total: \(String(format: "%.2f", totalValue))€")
             }
-            
-            try context.save()
-            
-            self.accounts = models
-            self.totalValue = models.reduce(0) { $0 + $1.value }
-            self.lastRefreshDate = Date()
-            
-            print("✅ Successfully loaded \(models.count) accounts, total: \(String(format: "%.2f", totalValue))€")
             
         } catch {
             print("⚠️ Error loading accounts: \(error.localizedDescription)")
             self.errorMessage = "Failed to load accounts: \(error.localizedDescription)"
             
-            // En cas d'erreur, essayer de charger depuis le cache même expiré
             await loadFromExpiredCache(context: context)
         }
         
@@ -188,7 +288,6 @@ class AccountsListViewModel: ObservableObject {
                 self.accounts = cachedAccounts
                 self.totalValue = cachedAccounts.reduce(0) { $0 + $1.value }
                 
-                // Trouver la date du dernier snapshot
                 let snapshotDescriptor = FetchDescriptor<Snapshot>(
                     sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
                 )
@@ -204,24 +303,21 @@ class AccountsListViewModel: ObservableObject {
         }
     }
     
-    /// Supprime les anciens comptes pour éviter les doublons
-    private func clearOldAccounts(context: ModelContext) async {
+    /// Vide le cache local
+    private func clearLocalCache(context: ModelContext) async {
         do {
-            // Supprimer les anciens comptes
             let accountDescriptor = FetchDescriptor<Account>()
             let oldAccounts = try context.fetch(accountDescriptor)
             for account in oldAccounts {
                 context.delete(account)
             }
             
-            // Supprimer les anciennes positions
             let positionDescriptor = FetchDescriptor<Position>()
             let oldPositions = try context.fetch(positionDescriptor)
             for position in oldPositions {
                 context.delete(position)
             }
             
-            // Garder seulement les 20 derniers snapshots (environ 10 jours d'historique à 2 mises à jour/jour)
             let snapshotDescriptor = FetchDescriptor<Snapshot>(
                 sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
             )
@@ -233,16 +329,14 @@ class AccountsListViewModel: ObservableObject {
             }
             
         } catch {
-            print("❌ Failed to clear old data: \(error)")
+            print("❌ Failed to clear local cache: \(error)")
         }
     }
 
-    /// Point d'entrée principal
     func loadFromAuthService(context: ModelContext, forceRefresh: Bool = false) async {
         await loadAccountsSmartly(context: context, forceRefresh: forceRefresh)
     }
     
-    /// Force un nouveau login et reload
     func forceRelogin(username: String, password: String, context: ModelContext) async {
         print("🔄 Force relogin started")
         do {
@@ -258,8 +352,7 @@ class AccountsListViewModel: ObservableObject {
         }
     }
     
-    /// Informations sur le cache adaptées aux données financières
-    var cacheInfo: String {
+    var localCacheInfo: String {
         if let lastRefresh = lastRefreshDate {
             let hoursAgo = Date().timeIntervalSince(lastRefresh) / 3600
             if hoursAgo < 1 {
@@ -272,10 +365,20 @@ class AccountsListViewModel: ObservableObject {
         return "No update data"
     }
     
-    /// Indique si les données sont probablement à jour
     var isDataFresh: Bool {
         guard let lastRefresh = lastRefreshDate else { return false }
         let hoursAgo = Date().timeIntervalSince(lastRefresh) / 3600
-        return hoursAgo < 6 // Considéré frais si < 6h
+        return hoursAgo < 6
     }
-}g
+    
+    var combinedCacheStatus: String {
+        let localStatus = localCacheInfo
+        
+        if let serverCache = serverCacheInfo {
+            let serverStatus = serverCache.statusDescription
+            return "\(localStatus) • Server: \(serverStatus)"
+        }
+        
+        return localStatus
+    }
+}
